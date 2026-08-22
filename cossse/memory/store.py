@@ -62,6 +62,20 @@ class Memory:
         self._db.commit()
         return MemoryReceipt(record_id, stored_at, digest)
 
+    def receipts(self) -> tuple[MemoryReceipt, ...]:
+        """Return receipts for preserved values without interpreting their payloads.
+
+        This is intentionally enumeration, not search. It exposes only Memory's
+        own housekeeping metadata so a consumer can discover what may be recalled
+        without reaching into the storage implementation.
+        """
+
+        rows = self._db.execute(
+            "SELECT memory_id, stored_at, sha256 FROM memories "
+            "ORDER BY stored_at ASC, memory_id ASC"
+        ).fetchall()
+        return tuple(MemoryReceipt(*row) for row in rows)
+
     def recall(self, memory_id: str) -> Any:
         row = self._db.execute(
             "SELECT payload, sha256 FROM memories WHERE memory_id = ?",
