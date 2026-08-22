@@ -1,4 +1,10 @@
-"""Prove a real Collector experience can flow into Memory and survive restart."""
+"""Prove a real Collector experience can be discovered from Memory after restart.
+
+The restart side is intentionally not handed the memory_id produced during
+preservation. It first discovers Memory receipts through Flow, then recalls the
+candidate experiences through Flow. Relevance is decided by the consumer, not
+by Memory.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +34,11 @@ def run(domain_path: str, source: str) -> int:
         return 2
 
     experience = collected.feedback[0]
+    report = experience.body.get("outcome") or {}
+    execution = report.get("execution") or {}
+    data = report.get("data") or {}
+    raw = data.get("raw")
+
     with tempfile.TemporaryDirectory() as temp_dir:
         memory_path = Path(temp_dir) / "memory.db"
 
@@ -35,38 +46,77 @@ def run(domain_path: str, source: str) -> int:
             preserved = Flow().encounter(experience, adapters=(MemoryAdapter(memory),))
             if preserved.status is not DispositionStatus.CLAIMED or not preserved.feedback:
                 return 3
-            receipt_meaning = preserved.feedback[0]
-            memory_id = str(receipt_meaning.body["memory_id"])
+            preservation_status = preserved.status.value
 
-        # New Memory instance: proves persistence across a restart boundary.
+        # Restart boundary. The memory_id from preservation is deliberately not
+        # carried across. Discovery begins only from the preserved Memory itself.
         with Memory(memory_path) as memory:
-            recalled = memory.recall(memory_id)
+            adapter = MemoryAdapter(memory)
+            discovered = Flow().encounter(
+                Meaning(body={"need": "discover_preserved_experiences"}),
+                adapters=(adapter,),
+            )
+            if discovered.status is not DispositionStatus.CLAIMED or not discovered.feedback:
+                return 4
+
+            receipts = discovered.feedback[0].body.get("receipts") or ()
+            relevant = None
+            discovered_memory_id = None
+
+            for receipt in receipts:
+                candidate_id = str(receipt["memory_id"])
+                recalled = Flow().encounter(
+                    Meaning(
+                        body={
+                            "need": "recall_preserved_experience",
+                            "memory_id": candidate_id,
+                        }
+                    ),
+                    adapters=(adapter,),
+                )
+                if recalled.status is not DispositionStatus.CLAIMED or not recalled.feedback:
+                    continue
+
+                value = recalled.feedback[0].body.get("value") or {}
+                body = value.get("body") or {}
+                candidate_report = body.get("outcome") or {}
+                request = candidate_report.get("request") or {}
+                if (
+                    request.get("domain_path") == domain_path
+                    and str(request.get("source")) == str(source)
+                ):
+                    relevant = value
+                    discovered_memory_id = candidate_id
+                    break
+
+    if relevant is None:
+        return 5
 
     same_experience = (
-        recalled["meaning_id"] == experience.meaning_id
-        and recalled["caused_by"] == experience.caused_by
-        and recalled["body"] == experience.body
+        relevant["meaning_id"] == experience.meaning_id
+        and relevant["caused_by"] == experience.caused_by
+        and relevant["body"] == experience.body
     )
-    report = experience.body.get("outcome") or {}
-    execution = report.get("execution") or {}
-    data = report.get("data") or {}
-    raw = data.get("raw")
 
     print(
         json.dumps(
             {
                 "collection_disposition": collected.status.value,
-                "memory_disposition": preserved.status.value,
-                "memory_id": memory_id,
+                "memory_disposition": preservation_status,
+                "discovery_disposition": discovered.status.value,
+                "discovered_receipts": len(receipts),
+                "discovered_memory_id": discovered_memory_id,
                 "collector_status": execution.get("status"),
                 "raw_bytes": len(raw) if isinstance(raw, bytes) else None,
+                "relevant_experience_found": True,
                 "faithful_after_restart": same_experience,
+                "prior_memory_id_required": False,
             },
             indent=2,
         )
     )
-    return 0 if same_experience else 4
+    return 0 if same_experience else 6
 
 
 if __name__ == "__main__":
-    raise SystemExit(run("games/chance/lottery/kerala", "75352"))
+    raise SystemExit(run("games/chance/lottery/kerala", "75356"))
