@@ -1,0 +1,35 @@
+name: Live Memory Flow
+
+on:
+  pull_request:
+    paths:
+      - 'cossse/memory/**'
+      - 'cossse/adapters/memory.py'
+      - 'examples/live_collector_memory_flow.py'
+      - 'tests/test_memory*.py'
+      - '.github/workflows/live-memory-flow.yml'
+  workflow_dispatch:
+
+jobs:
+  live-memory-flow:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out COSsse
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install COSsse and test tools
+        run: python -m pip install -e '.[dev]'
+
+      - name: Install stable Collector v1.0.0
+        run: python -m pip install 'collector @ git+https://github.com/pbssathya/collector.git@2923a0d24ded7c4e3fff30d9045e0fcd2612d2a4'
+
+      - name: Run COSsse tests
+        run: python -m pytest -q
+
+      - name: Run real Collector to Memory Flow
+        run: python examples/live_collector_memory_flow.py
