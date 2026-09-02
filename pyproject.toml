@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cossse"
 version = "0.1.0"
-description = "Experimental generalized Flow habitat for COSsse"
+description = "Experimental generalized Flow and Memory habitat for COSsse"
 requires-python = ">=3.10"
 dependencies = []
 
